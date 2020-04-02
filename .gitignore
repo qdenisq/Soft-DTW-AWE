@@ -1,0 +1,11 @@
+speech_dataset
+reports
+models
+.sass-cache
+.idea
+*~
+*.log
+*#
+*.pyc
+_site
+*.lock
