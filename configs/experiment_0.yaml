@@ -3,7 +3,6 @@ data_root: 'C:\Study\Soft-DTW-AWE\speech_dataset'
 model_root: 'C:\Study\Soft-DTW-AWE\models'
 report_root: 'C:\Study\Soft-DTW-AWE\reports'
 
-
 wanted_words:
 #  - 'bed'
 #  - 'bird'
@@ -37,6 +36,7 @@ wanted_words:
   - 'zero'
 
 
+
 dct_coefficient_count: 13
 mfcc_num: 39
 batch_norm: True
@@ -48,23 +48,28 @@ hidden_reccurent:
 - 256
 winlen: 0.02
 winstep: 0.01
-open_end: False
-dist: 'l1'
-margin: 0.4
+
 dropout: 0.3
 bidirectional: False
 
+use_cuda: False
 
-
-loss_type: 'sdtw' # cos_hinge, sdtw, l2, ce
-alpha: 0.0
-
-triplet_anneal_k: 0.0025
-triplet_anneal_b: 2500
+loss:
+  type: 'sdtw' # cos_hinge, sdtw, l2, ce
+  alpha: 0.0
+  dist: 'l1'
+  open_end: False
+  margin: 0.4
+#loss_type: 'sdtw' # cos_hinge, sdtw, l2, ce
+  triplet_anneal_k: 0.0025
+  triplet_anneal_b: 2500
 
 train_steps: 50000
 mini_batch_size: 64
 
 learning_rate: 0.001
+
+save_each: 500 # save model each n steps
+validate_each: 500 # validate model each n steps
 
 

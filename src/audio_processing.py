@@ -15,8 +15,8 @@ from six.moves import urllib
 from six.moves import xrange  # pylint: disable=redefined-builtin
 # import tensorflow as tf
 
-from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
-from tensorflow.python.ops import io_ops
+# # from tensorflow.contrib.framework.python.ops import audio_ops as contrib_audio
+# from tensorflow.python.ops import io_ops
 from tensorflow.python.platform import gfile
 from tensorflow.python.util import compat
 from numpy.lib.stride_tricks import as_strided
@@ -93,229 +93,229 @@ def which_set(filename, validation_percentage, testing_percentage):
     result = 'training'
   return result
 
-
-class AudioProcessor(object):
-    def __init__(self,
-                 model_settings,
-                 data_dir,
-                 wanted_words,
-                 validation_percentage,
-                 testing_percentage,
-                 silence_percentage=0.,
-                 unknown_percentage=0.):
-        random.seed(RANDOM_SEED)
-        self.data_dir = data_dir
-        self.data_index = {"train": [],
-                           "test": [],
-                           "validation": []}
-        self._model_settings = model_settings
-        self.prepare_data_index(silence_percentage=silence_percentage,
-                                unknown_percentage=unknown_percentage,
-                                wanted_words=wanted_words,
-                                validation_percentage=validation_percentage,
-                                testing_percentage=testing_percentage)
-        self._build_processing_graph()
-        strip_window_size_ms = self._model_settings["strip_window_size_ms"]
-        strip_window_stride_ms = self._model_settings["strip_window_stride_ms"]
-        strip_window_size_samples = int(strip_window_size_ms / self._model_settings["window_stride_ms"])
-        strip_window_stride_samples = int(strip_window_stride_ms / self._model_settings["window_stride_ms"])
-        self._model_settings['strip_window_size_samples'] = strip_window_size_samples
-        self._model_settings['strip_window_stride_samples'] = strip_window_stride_samples
-        self._model_settings['strip_array_length'] = \
-         int(math.ceil((self._model_settings['spectrogram_length'] - strip_window_size_samples) / strip_window_stride_samples))
-        return
-
-    def prepare_data_index(self, silence_percentage, unknown_percentage,
-                           wanted_words, validation_percentage,
-                           testing_percentage):
-        """Prepares a list of the samples organized by set and label.
-
-        The training loop needs a list of all the available data, organized by
-        which partition it should belong to, and with ground truth labels attached.
-        This function analyzes the folders below the `data_dir`, figures out the
-        right
-        labels for each file based on the name of the subdirectory it belongs to,
-        and uses a stable hash to assign it to a data set partition.
-
-        Args:
-          silence_percentage: How much of the resulting data should be background.
-          unknown_percentage: How much should be audio outside the wanted classes.
-          wanted_words: Labels of the classes we want to be able to recognize.
-          validation_percentage: How much of the data set to use for validation.
-          testing_percentage: How much of the data set to use for testing.
-
-        Returns:
-          Dictionary containing a list of file information for each set partition,
-          and a lookup map for each class to determine its numeric index.
-
-        Raises:
-          Exception: If expected files are not found.
-        """
-        # Make sure the shuffling and picking of unknowns is deterministic.
-        random.seed(RANDOM_SEED)
-        wanted_words_index = {}
-        for index, wanted_word in enumerate(wanted_words):
-            wanted_words_index[wanted_word] = index + 2
-        self.data_index = {'validation': [], 'testing': [], 'training': []}
-        unknown_index = {'validation': [], 'testing': [], 'training': []}
-        all_words = {}
-        # Look through all the subfolders to find audio samples
-        search_path = os.path.join(self.data_dir, '*', '*.wav')
-        for wav_path in gfile.Glob(search_path):
-            _, word = os.path.split(os.path.dirname(wav_path))
-            word = word.lower()
-            # Treat the '_background_noise_' folder as a special case, since we expect
-            # it to contain long audio samples we mix in to improve training.
-            if word == BACKGROUND_NOISE_DIR_NAME:
-                continue
-            all_words[word] = True
-            set_index = which_set(wav_path, validation_percentage, testing_percentage)
-            # If it's a known class, store its detail, otherwise add it to the list
-            # we'll use to train the unknown label.
-            if word in wanted_words_index:
-                self.data_index[set_index].append({'label': word, 'file': wav_path})
-            else:
-                unknown_index[set_index].append({'label': word, 'file': wav_path})
-        if not all_words:
-            raise Exception('No .wavs found at ' + search_path)
-        for index, wanted_word in enumerate(wanted_words):
-            if wanted_word not in all_words:
-                raise Exception('Expected to find ' + wanted_word +
-                                ' in labels but only found ' +
-                                ', '.join(all_words.keys()))
-        # We need an arbitrary file to load as the input for the silence samples.
-        # It's multiplied by zero later, so the content doesn't matter.
-        silence_wav_path = self.data_index['training'][0]['file']
-        for set_index in ['validation', 'testing', 'training']:
-            set_size = len(self.data_index[set_index])
-            silence_size = int(math.ceil(set_size * silence_percentage / 100))
-            for _ in range(silence_size):
-                self.data_index[set_index].append({
-                    'label': SILENCE_LABEL,
-                    'file': silence_wav_path
-                })
-            # Pick some unknowns to add to each partition of the data set.
-            random.shuffle(unknown_index[set_index])
-            unknown_size = int(math.ceil(set_size * unknown_percentage / 100))
-            self.data_index[set_index].extend(unknown_index[set_index][:unknown_size])
-        # Make sure the ordering is random.
-        for set_index in ['validation', 'testing', 'training']:
-            random.shuffle(self.data_index[set_index])
-        # Prepare the rest of the result data structure.
-        self.words_list = prepare_words_list(wanted_words)
-        self.word_to_index = {}
-        for word in all_words:
-            if word in wanted_words_index:
-                self.word_to_index[word] = wanted_words_index[word]
-            else:
-                self.word_to_index[word] = UNKNOWN_WORD_INDEX
-        self.word_to_index[SILENCE_LABEL] = SILENCE_INDEX
-
-    def set_size(self, mode):
-        """Calculates the number of samples in the dataset partition.
-
-        Args:
-          mode: Which partition, must be 'training', 'validation', or 'testing'.
-
-        Returns:
-          Number of samples in the partition.
-        """
-        return len(self.data_index[mode])
-
-    def _build_processing_graph(self):
-        """Builds a TensorFlow graph to apply the input distortions.
-
-            Creates a graph that loads a WAVE file, decodes it, scales the volume,
-            shifts it in time, adds in background noise, calculates a spectrogram, and
-            then builds an MFCC fingerprint from that.
-
-            This must be called with an active TensorFlow session running, and it
-            creates multiple placeholder inputs, and one output:
-
-              - wav_filename_placeholder_: Filename of the WAV to load.
-              - mfcc_: Output 2D fingerprint of processed audio.
-
-            """
-        with tf.name_scope('audio_processing'):
-            desired_samples = self._model_settings['desired_samples']
-            self.wav_filename_placeholder_ = tf.placeholder(tf.string, [])
-            wav_loader = io_ops.read_file(self.wav_filename_placeholder_)
-            wav_decoder = contrib_audio.decode_wav(
-                wav_loader, desired_channels=1, desired_samples=desired_samples)
-            background_clamp = tf.clip_by_value(wav_decoder.audio, -1.0, 1.0)
-            # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
-            spectrogram = contrib_audio.audio_spectrogram(
-                background_clamp,
-                window_size=self._model_settings['window_size_samples'],
-                stride=self._model_settings['window_stride_samples'],
-                magnitude_squared=True)
-            self.mfcc_ = contrib_audio.mfcc(
-                spectrogram,
-                wav_decoder.sample_rate,
-                dct_coefficient_count=self._model_settings['dct_coefficient_count'])
-
-    def get_sequential_data_sample(self, fname):
-        sess = tf.get_default_session()
-        assert(sess is not None)
-        feed_dict = {
-            self.wav_filename_placeholder_: fname
-        }
-        mfcc = sess.run(self.mfcc_, feed_dict=feed_dict)
-
-        strip_window_size_samples = self._model_settings['strip_window_size_samples']
-        strip_window_stride_samples = self._model_settings['strip_window_stride_samples']
-        mfcc = np.squeeze(mfcc)
-        mfcc_chunks = np.asarray([mfcc[base:base + strip_window_size_samples]
-                                  for base in range(0, len(mfcc) - strip_window_size_samples, strip_window_stride_samples)])
-        return mfcc_chunks, mfcc
-
-    def get_data(self, how_many, offset, mode):
-        """Gather samples from the data set, applying transformations as needed.
-
-        When the mode is 'training', a random selection of samples will be returned,
-        otherwise the first N clips in the partition will be used. This ensures that
-        validation always uses the same samples, reducing noise in the metrics.
-
-        Args:
-          how_many: Desired number of samples to return. -1 means the entire
-            contents of this partition.
-          offset: Where to start when fetching deterministically.
-          mode: Which partition to use, must be 'training', 'validation', or
-            'testing'.
-
-        Returns:
-          List of sample data for the transformed samples, and list of label indexes
-        """
-        # Pick one of the partitions to choose samples from.
-        candidates = self.data_index[mode]
-        if how_many == -1:
-            sample_count = len(candidates)
-        else:
-            sample_count = max(0, min(how_many, len(candidates) - offset))
-        # Data and labels will be populated and returned.
-        num_chunks = self._model_settings['strip_array_length']
-        num_dct = self._model_settings['dct_coefficient_count']
-        window_size_samples = self._model_settings['strip_window_size_samples']
-        data = np.zeros((sample_count, num_chunks, window_size_samples, num_dct))
-        labels = np.zeros(sample_count)
-        desired_samples = self._model_settings['desired_samples']
-        pick_deterministically = (mode != 'training')
-        # Use the processing graph we created earlier to repeatedly to generate the
-        # final output sample data we'll use in training.
-        sess = tf.get_default_session()
-        assert(sess is not None)
-        for i in xrange(offset, offset + sample_count):
-            # Pick which audio sample to use.
-            if how_many == -1 or pick_deterministically:
-                sample_index = i
-            else:
-                sample_index = np.random.randint(len(candidates))
-            sample = candidates[sample_index]
-            # Run the graph to produce the output audio.
-            data[i - offset, :, :, :], _ = self.get_sequential_data_sample(sample['file'])
-            label_index = self.word_to_index[sample['label']]
-            labels[i - offset] = label_index
-        return data, labels
+#
+# class AudioProcessor(object):
+#     def __init__(self,
+#                  model_settings,
+#                  data_dir,
+#                  wanted_words,
+#                  validation_percentage,
+#                  testing_percentage,
+#                  silence_percentage=0.,
+#                  unknown_percentage=0.):
+#         random.seed(RANDOM_SEED)
+#         self.data_dir = data_dir
+#         self.data_index = {"train": [],
+#                            "test": [],
+#                            "validation": []}
+#         self._model_settings = model_settings
+#         self.prepare_data_index(silence_percentage=silence_percentage,
+#                                 unknown_percentage=unknown_percentage,
+#                                 wanted_words=wanted_words,
+#                                 validation_percentage=validation_percentage,
+#                                 testing_percentage=testing_percentage)
+#         self._build_processing_graph()
+#         strip_window_size_ms = self._model_settings["strip_window_size_ms"]
+#         strip_window_stride_ms = self._model_settings["strip_window_stride_ms"]
+#         strip_window_size_samples = int(strip_window_size_ms / self._model_settings["window_stride_ms"])
+#         strip_window_stride_samples = int(strip_window_stride_ms / self._model_settings["window_stride_ms"])
+#         self._model_settings['strip_window_size_samples'] = strip_window_size_samples
+#         self._model_settings['strip_window_stride_samples'] = strip_window_stride_samples
+#         self._model_settings['strip_array_length'] = \
+#          int(math.ceil((self._model_settings['spectrogram_length'] - strip_window_size_samples) / strip_window_stride_samples))
+#         return
+#
+#     def prepare_data_index(self, silence_percentage, unknown_percentage,
+#                            wanted_words, validation_percentage,
+#                            testing_percentage):
+#         """Prepares a list of the samples organized by set and label.
+#
+#         The training loop needs a list of all the available data, organized by
+#         which partition it should belong to, and with ground truth labels attached.
+#         This function analyzes the folders below the `data_dir`, figures out the
+#         right
+#         labels for each file based on the name of the subdirectory it belongs to,
+#         and uses a stable hash to assign it to a data set partition.
+#
+#         Args:
+#           silence_percentage: How much of the resulting data should be background.
+#           unknown_percentage: How much should be audio outside the wanted classes.
+#           wanted_words: Labels of the classes we want to be able to recognize.
+#           validation_percentage: How much of the data set to use for validation.
+#           testing_percentage: How much of the data set to use for testing.
+#
+#         Returns:
+#           Dictionary containing a list of file information for each set partition,
+#           and a lookup map for each class to determine its numeric index.
+#
+#         Raises:
+#           Exception: If expected files are not found.
+#         """
+#         # Make sure the shuffling and picking of unknowns is deterministic.
+#         random.seed(RANDOM_SEED)
+#         wanted_words_index = {}
+#         for index, wanted_word in enumerate(wanted_words):
+#             wanted_words_index[wanted_word] = index + 2
+#         self.data_index = {'validation': [], 'testing': [], 'training': []}
+#         unknown_index = {'validation': [], 'testing': [], 'training': []}
+#         all_words = {}
+#         # Look through all the subfolders to find audio samples
+#         search_path = os.path.join(self.data_dir, '*', '*.wav')
+#         for wav_path in gfile.Glob(search_path):
+#             _, word = os.path.split(os.path.dirname(wav_path))
+#             word = word.lower()
+#             # Treat the '_background_noise_' folder as a special case, since we expect
+#             # it to contain long audio samples we mix in to improve training.
+#             if word == BACKGROUND_NOISE_DIR_NAME:
+#                 continue
+#             all_words[word] = True
+#             set_index = which_set(wav_path, validation_percentage, testing_percentage)
+#             # If it's a known class, store its detail, otherwise add it to the list
+#             # we'll use to train the unknown label.
+#             if word in wanted_words_index:
+#                 self.data_index[set_index].append({'label': word, 'file': wav_path})
+#             else:
+#                 unknown_index[set_index].append({'label': word, 'file': wav_path})
+#         if not all_words:
+#             raise Exception('No .wavs found at ' + search_path)
+#         for index, wanted_word in enumerate(wanted_words):
+#             if wanted_word not in all_words:
+#                 raise Exception('Expected to find ' + wanted_word +
+#                                 ' in labels but only found ' +
+#                                 ', '.join(all_words.keys()))
+#         # We need an arbitrary file to load as the input for the silence samples.
+#         # It's multiplied by zero later, so the content doesn't matter.
+#         silence_wav_path = self.data_index['training'][0]['file']
+#         for set_index in ['validation', 'testing', 'training']:
+#             set_size = len(self.data_index[set_index])
+#             silence_size = int(math.ceil(set_size * silence_percentage / 100))
+#             for _ in range(silence_size):
+#                 self.data_index[set_index].append({
+#                     'label': SILENCE_LABEL,
+#                     'file': silence_wav_path
+#                 })
+#             # Pick some unknowns to add to each partition of the data set.
+#             random.shuffle(unknown_index[set_index])
+#             unknown_size = int(math.ceil(set_size * unknown_percentage / 100))
+#             self.data_index[set_index].extend(unknown_index[set_index][:unknown_size])
+#         # Make sure the ordering is random.
+#         for set_index in ['validation', 'testing', 'training']:
+#             random.shuffle(self.data_index[set_index])
+#         # Prepare the rest of the result data structure.
+#         self.words_list = prepare_words_list(wanted_words)
+#         self.word_to_index = {}
+#         for word in all_words:
+#             if word in wanted_words_index:
+#                 self.word_to_index[word] = wanted_words_index[word]
+#             else:
+#                 self.word_to_index[word] = UNKNOWN_WORD_INDEX
+#         self.word_to_index[SILENCE_LABEL] = SILENCE_INDEX
+#
+#     def set_size(self, mode):
+#         """Calculates the number of samples in the dataset partition.
+#
+#         Args:
+#           mode: Which partition, must be 'training', 'validation', or 'testing'.
+#
+#         Returns:
+#           Number of samples in the partition.
+#         """
+#         return len(self.data_index[mode])
+#
+#     def _build_processing_graph(self):
+#         """Builds a TensorFlow graph to apply the input distortions.
+#
+#             Creates a graph that loads a WAVE file, decodes it, scales the volume,
+#             shifts it in time, adds in background noise, calculates a spectrogram, and
+#             then builds an MFCC fingerprint from that.
+#
+#             This must be called with an active TensorFlow session running, and it
+#             creates multiple placeholder inputs, and one output:
+#
+#               - wav_filename_placeholder_: Filename of the WAV to load.
+#               - mfcc_: Output 2D fingerprint of processed audio.
+#
+#             """
+#         with tf.name_scope('audio_processing'):
+#             desired_samples = self._model_settings['desired_samples']
+#             self.wav_filename_placeholder_ = tf.placeholder(tf.string, [])
+#             wav_loader = io_ops.read_file(self.wav_filename_placeholder_)
+#             wav_decoder = contrib_audio.decode_wav(
+#                 wav_loader, desired_channels=1, desired_samples=desired_samples)
+#             background_clamp = tf.clip_by_value(wav_decoder.audio, -1.0, 1.0)
+#             # Run the spectrogram and MFCC ops to get a 2D 'fingerprint' of the audio.
+#             spectrogram = contrib_audio.audio_spectrogram(
+#                 background_clamp,
+#                 window_size=self._model_settings['window_size_samples'],
+#                 stride=self._model_settings['window_stride_samples'],
+#                 magnitude_squared=True)
+#             self.mfcc_ = contrib_audio.mfcc(
+#                 spectrogram,
+#                 wav_decoder.sample_rate,
+#                 dct_coefficient_count=self._model_settings['dct_coefficient_count'])
+#
+#     def get_sequential_data_sample(self, fname):
+#         sess = tf.get_default_session()
+#         assert(sess is not None)
+#         feed_dict = {
+#             self.wav_filename_placeholder_: fname
+#         }
+#         mfcc = sess.run(self.mfcc_, feed_dict=feed_dict)
+#
+#         strip_window_size_samples = self._model_settings['strip_window_size_samples']
+#         strip_window_stride_samples = self._model_settings['strip_window_stride_samples']
+#         mfcc = np.squeeze(mfcc)
+#         mfcc_chunks = np.asarray([mfcc[base:base + strip_window_size_samples]
+#                                   for base in range(0, len(mfcc) - strip_window_size_samples, strip_window_stride_samples)])
+#         return mfcc_chunks, mfcc
+#
+#     def get_data(self, how_many, offset, mode):
+#         """Gather samples from the data set, applying transformations as needed.
+#
+#         When the mode is 'training', a random selection of samples will be returned,
+#         otherwise the first N clips in the partition will be used. This ensures that
+#         validation always uses the same samples, reducing noise in the metrics.
+#
+#         Args:
+#           how_many: Desired number of samples to return. -1 means the entire
+#             contents of this partition.
+#           offset: Where to start when fetching deterministically.
+#           mode: Which partition to use, must be 'training', 'validation', or
+#             'testing'.
+#
+#         Returns:
+#           List of sample data for the transformed samples, and list of label indexes
+#         """
+#         # Pick one of the partitions to choose samples from.
+#         candidates = self.data_index[mode]
+#         if how_many == -1:
+#             sample_count = len(candidates)
+#         else:
+#             sample_count = max(0, min(how_many, len(candidates) - offset))
+#         # Data and labels will be populated and returned.
+#         num_chunks = self._model_settings['strip_array_length']
+#         num_dct = self._model_settings['dct_coefficient_count']
+#         window_size_samples = self._model_settings['strip_window_size_samples']
+#         data = np.zeros((sample_count, num_chunks, window_size_samples, num_dct))
+#         labels = np.zeros(sample_count)
+#         desired_samples = self._model_settings['desired_samples']
+#         pick_deterministically = (mode != 'training')
+#         # Use the processing graph we created earlier to repeatedly to generate the
+#         # final output sample data we'll use in training.
+#         sess = tf.get_default_session()
+#         assert(sess is not None)
+#         for i in xrange(offset, offset + sample_count):
+#             # Pick which audio sample to use.
+#             if how_many == -1 or pick_deterministically:
+#                 sample_index = i
+#             else:
+#                 sample_index = np.random.randint(len(candidates))
+#             sample = candidates[sample_index]
+#             # Run the graph to produce the output audio.
+#             data[i - offset, :, :, :], _ = self.get_sequential_data_sample(sample['file'])
+#             label_index = self.word_to_index[sample['label']]
+#             labels[i - offset] = label_index
+#         return data, labels
 
 
 class SpeechCommandsDataCollector(object):
