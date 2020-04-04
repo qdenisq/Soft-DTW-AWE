@@ -40,9 +40,9 @@ class AudioPreprocessor(object):
         kwargs
         """
 
-        self.__numcep = numcep
-        self.__winlen = winlen
-        self.__winstep = winstep
+        self._numcep = numcep
+        self._winlen = winlen
+        self._winstep = winstep
         return
 
     def __call__(self, *args, **kwargs):
@@ -60,11 +60,11 @@ class AudioPreprocessor(object):
         if len(args) == 1 and isinstance(args[0], str):
             return self.__from_file(args[0])
         elif len(args) == 2 and isinstance(args[0], np.ndarray) and isinstance(args[1], int):
-            return self.__from_array(args[0], args[1])
+            return self._from_array(args[0], args[1])
         else:
             raise TypeError("Expected either filename for audio file as an argument either raw audio with defined sample rate")
 
-    def __from_array(self, input, sr):
+    def _from_array(self, input, sr):
         """Computes MFCC of the audio array
 
         Parameters
@@ -83,7 +83,7 @@ class AudioPreprocessor(object):
         if len(input.shape) >= 2:
             inp_shape = input.shape
             raise ValueError(f"input shape has to be N*1, got: {inp_shape}")
-        mfcc_out = mfcc(input, samplerate=sr, numcep=self.__numcep + 1, winlen=self.__winlen, nfft=int(sr*self.__winlen), winstep=self.__winstep)
+        mfcc_out = mfcc(input, samplerate=sr, numcep=self._numcep + 1, winlen=self._winlen, nfft=int(sr*self._winlen), winstep=self._winstep)
         return mfcc_out[:, 1:]
 
     def __from_file(self, fname):
@@ -101,7 +101,7 @@ class AudioPreprocessor(object):
         """
 
         rate, input = wav.read(fname)
-        out = self.__from_array(input, sr=rate)
+        out = self._from_array(input, sr=rate)
         return out
 
     def get_dim(self):
@@ -125,7 +125,7 @@ class AudioPreprocessorMFCCDeltaDelta(AudioPreprocessor):
         super(AudioPreprocessorMFCCDeltaDelta, self).__init__(numcep=numcep, winlen=winlen, winstep=winstep, **kwargs)
         return
 
-    def __from_array(self, input, sr):
+    def _from_array(self, input, sr):
         """Computes MFCC and its first and second derivative of the audio array
 
         Parameters
@@ -143,7 +143,7 @@ class AudioPreprocessorMFCCDeltaDelta(AudioPreprocessor):
         if len(input.shape) >= 2:
             inp_shape = input.shape
             raise ValueError(f"input shape has to be N*1, got: {inp_shape}")
-        out = mfcc(input, samplerate=sr, numcep=self.__numcep + 1, winlen=self.__winlen, nfft=int(sr*self.__winlen), winstep=self.__winstep)[:, 1:]
+        out = mfcc(input, samplerate=sr, numcep=self._numcep + 1, winlen=self._winlen, nfft=int(sr*self._winlen), winstep=self._winstep)[:, 1:]
         out_delta = delta(out, 1)
         out_delta_delta = delta(out_delta, 1)
         res = np.concatenate((out, out_delta, out_delta_delta), axis=1)

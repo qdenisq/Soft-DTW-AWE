@@ -68,7 +68,7 @@ class TripletNetLoss(nn.Module):
 
         if self.params['type'] == 'sdtw':
             # DTWLoss (want to minimize dtw between duplicates and maximize dtw between non-duplicates)
-            DTW_loss = torch.tensor([0]).float().to(embeds.device)
+            DTW_loss = torch.tensor([0]).float().to(embeds[0].device)
             for k in range(n_mini_batch_size):
                 DTW_loss += torch.nn.functional.relu(self.sdtw(embeds[0][k], embeds[1][k]) -
                                                      self.sdtw(embeds[0][k + n_mini_batch_size],
