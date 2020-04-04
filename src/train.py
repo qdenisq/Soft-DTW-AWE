@@ -1,59 +1,49 @@
 import os
 import datetime
-
-from sklearn.metrics import precision_recall_curve, average_precision_score
-
-import torch.nn.functional as F
-import torch.nn as nn
+import argparse
 import torch
 from torch.utils.tensorboard import SummaryWriter
-
-import dtwalign
-
+from sklearn.metrics import average_precision_score
 import numpy as np
-
-
 import yaml
-
 from pprint import pprint
-from python_speech_features import mfcc
-import scipy.io.wavfile as wav
 
 from src.model import SiameseDeepLSTMNet
 from src.loss import TripletNetLoss
-from src.audio_processing import AudioPreprocessor, SpeechCommandsDataCollector, AudioPreprocessorMFCCDeltaDelta
+from src.audio_processing import AudioPreprocessorMFCCDeltaDelta
 from src.data_collector import SiameseSpeechCommandsDataCollector
 from src.soft_dtw import SoftDTW
 
 
 def train(config):
-    #############################################################
-    # Simple Lstm train script
-    #############################################################
+    """Main routine for training triplet network on SpeechCommands dataset
+
+    Parameters
+    ----------
+    config
+
+    Returns
+    -------
 
     """
-    Initialize
-    """
 
-    wanted_words = config['wanted_words']
+    labels = config['labels']
+    config['model']['label_count'] = len(labels) + 2
 
-    model_settings = config
-    model_settings['label_count'] = len(wanted_words) + 2
-
-    preproc = AudioPreprocessorMFCCDeltaDelta(numcep=model_settings['dct_coefficient_count'],
-                                              winlen=model_settings['winlen'],
-                                              winstep=model_settings['winstep'])
+    preproc = AudioPreprocessorMFCCDeltaDelta(numcep=config['preprocessing']['numcep'],
+                                              winlen=config['preprocessing']['winlen'],
+                                              winstep=config['preprocessing']['winstep'])
 
     data_root = config['data_root']
 
     data_iter = SiameseSpeechCommandsDataCollector(preproc,
-                                            data_dir=data_root,
-                                            wanted_words=wanted_words,
-                                            testing_percentage=10,
-                                            validation_percentage=10
-                                            )
+                                                    data_dir=data_root,
+                                                    wanted_words=labels,
+                                                    testing_percentage=10,
+                                                    validation_percentage=10
+                                                    )
 
-    # Summary writer
+    # Create summary writer
     dt = str(datetime.datetime.now().strftime("%m_%d_%Y_%I_%M_%p"))
     report_dir = os.path.join(config['report_root'], dt)
     writer = SummaryWriter(report_dir)
@@ -66,20 +56,21 @@ def train(config):
     os.makedirs(model_dir, exist_ok=True)
 
     # configure training procedure
-    n_train_steps = config['train_steps']
-    n_mini_batch_size = config['mini_batch_size']
+    n_train_steps = config['training']['train_steps']
+    n_mini_batch_size = config['training']['mini_batch_size']
     device = 'cuda' if torch.cuda.is_available() and config['use_cuda'] else 'cpu'
 
-
-    siamese_net = SiameseDeepLSTMNet(config).to(device)
+    # init model
+    siamese_net = SiameseDeepLSTMNet(config['model']).to(device)
     siamese_net.train()
-    optimizer = torch.optim.Adam(siamese_net.parameters(), lr=config['learning_rate'])
+    # init optimizer
+    optimizer = torch.optim.Adam(siamese_net.parameters(), lr=config['training']['learning_rate'])
+    # init loss
     loss_func = TripletNetLoss(config['loss'])
 
     """
-    Train 
+    Train  loop
     """
-    max_cce_acc = 0.
     for i in range(n_train_steps):
         # collect data
         data = data_iter.get_data(n_mini_batch_size, 0, 'training')
@@ -94,21 +85,19 @@ def train(config):
         # construct a tensor of a form [data duplicates, data non-duplicates]
         x = torch.from_numpy(np.array([np.concatenate([data['x'], data['x']]),
                                        np.concatenate([duplicates['x'], non_duplicates['x']])])).float().to(device)
-        y_target = np.array([0] * len(labels) + [1] * len(labels))
-        y_target = torch.from_numpy(y_target).float().to(device)
         # forward
-        embeds, y, predicted_labels = siamese_net(x)
+        embeds, predicted_labels = siamese_net(x)
 
         target_labels = torch.from_numpy(np.array([np.concatenate([data['y'],
                                                                    data['y'],
                                                                    duplicates['y'],
                                                                    non_duplicates['y']])]
                                                   )).long().to(device).squeeze()
-
+        # compute loss
         loss = loss_func(predicted_labels, target_labels, embeds, i)
 
+        # backprop and update
         optimizer.zero_grad()
-
         loss.backward()
         # torch.nn.utils.clip_grad_norm_(siamese_net.parameters(), 1)
         optimizer.step()
@@ -116,7 +105,7 @@ def train(config):
         loss_type = config['loss']['type']
         writer.add_scalar(f'{loss_type} loss', loss.detach().cpu().item(), i)
 
-        if i % config['save_each'] == 0:
+        if i % config['training']['save_each'] == 0:
             for name, param in siamese_net.named_parameters():
                 writer.add_histogram("SiameseNet_" + name, param, i)
             fname = os.path.join(model_dir, f'net_{i}.net')
@@ -124,7 +113,8 @@ def train(config):
 
         print(f"{i} | {loss_type} loss: {loss.detach().cpu().item():.4f}")
 
-        if i % config['validate_each'] == 0:
+        # validate
+        if i % config['training']['validate_each'] == 0:
             # collect data
             data = data_iter.get_data(n_mini_batch_size, 0, 'validation')
             labels = data['y']
@@ -140,24 +130,26 @@ def train(config):
                                            np.concatenate([duplicates['x'], non_duplicates['x']])])).float().to(device)
             y_target = np.array([0] * len(labels) + [1] * len(labels))
             # forward
-            embeds, y, predicted_labels = siamese_net(x)
+            embeds, predicted_labels = siamese_net(x)
 
             target_labels = torch.from_numpy(np.array([np.concatenate([data['y'],
                                                                        data['y'],
                                                                        duplicates['y'],
                                                                        non_duplicates['y']])]
                                                       )).long().to(device).squeeze()
+
+            # compute validation loss
             val_loss = loss_func(predicted_labels, target_labels, embeds, i)
 
-            # calculate distance between embeddings
+            # compute distance between embeddings
             dists = []
             dist_func = SoftDTW(open_end=False, dist='l1')
             for k in range(embeds[0].shape[0]):
                 dist = dist_func(embeds[0][k], embeds[1][k]).detach().cpu().item()
                 dists.append(dist)
-
             dists = np.array(dists)
 
+            # compute average precision
             ap = average_precision_score(y_target, dists)
 
             writer.add_scalar('AP', ap, i)
@@ -167,12 +159,12 @@ def train(config):
 
 
 if __name__ == '__main__':
-    with open('../configs/experiment_0.yaml', 'r') as data_file:
-        config = yaml.safe_load(data_file)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config", help="path to the config file", default='../configs/experiment_0.yaml')
+    args = parser.parse_args()
+
+    with open(args.config, 'r') as config_file:
+        config = yaml.safe_load(config_file)
     pprint(config)
-
     train(config)
-
-
-
     print('done')

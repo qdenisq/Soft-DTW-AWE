@@ -10,14 +10,18 @@ def init_weights(m):
         
 
 class SiameseDeepLSTMNet(nn.Module):
+    """
+    Seamise LSTM network for learning acoustic word embeddings (AWEs).
+    """
+
     def __init__(self, model_settings):
         super(SiameseDeepLSTMNet, self).__init__()
-        self.__n_window_height = model_settings['mfcc_num']
+        self.__n_window_height = model_settings['input_dim']
         self.__n_classes = model_settings['label_count']
 
         self.__dropout = nn.Dropout(p=model_settings['dropout'])
 
-        if 'batch_norm' in model_settings and model_settings['batch_norm'] == True:
+        if 'batch_norm' in model_settings and model_settings['batch_norm'] is True:
             self.__bn1 = nn.BatchNorm1d(self.__n_window_height)
 
         self.__n_hidden_reccurent = model_settings['hidden_reccurent']
@@ -49,7 +53,21 @@ class SiameseDeepLSTMNet(nn.Module):
 
         # self.apply(init_weights)
 
-    def single_forward(self, input, hidden=None):
+    def single_forward(self, input):
+        """Compute embeddings of the input tensor
+
+        Parameters
+        ----------
+        input: torch.Tensor
+            input tensor
+        Returns
+        -------
+        torch.Tensor:
+            output embeddings computed over all timesteps of the input tensor
+        torch.Tensor
+            embedding of the last timestep
+
+        """
         x = input
         if hasattr(self, '__bn1'):
             orig_shape = x.shape
@@ -73,21 +91,31 @@ class SiameseDeepLSTMNet(nn.Module):
         return x, hidden
 
     def forward(self, input, hidden=None):
-        # if hidden is None:
-        #     hidden = torch.zeros(x.size(0), self.n_hidden)
+        """Compute embeddings of the input, where input is a pair of tensors according to Seamise approach.
+        Output embeddings as well as predicts logits for class predictions.
+
+        Parameters
+        ----------
+        input: list(torch.Tensor)
+            Pair of input tensors
+        hidden: optinal
+
+        Returns
+        -------
+        list(torch.Tensor)
+            Pair of output embeddings
+        torch.Tensor
+            Logits
+        """
         lstm_out = []
-        zs = []
+        embeddings = []
         for i in range(2):
             x = input[i]
             x, hidden = self.single_forward(x)
             lstm_out.append(hidden)
-            zs.append(x)
+            embeddings.append(x)
 
         # cce path
         cce_output = torch.cat(lstm_out, dim=0).squeeze()
         cce_output = self.__output_layer_cce(cce_output)
-
-        # bce path
-        lstm_out = torch.cat(lstm_out, dim=-1).squeeze()
-        output = torch.nn.Sigmoid()(self.__output_layer(lstm_out))
-        return zs, output, cce_output
+        return embeddings, cce_output

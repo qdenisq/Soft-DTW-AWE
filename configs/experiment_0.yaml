@@ -1,21 +1,21 @@
 ---
-data_root: 'C:\Study\Soft-DTW-AWE\speech_dataset'
-model_root: 'C:\Study\Soft-DTW-AWE\models'
-report_root: 'C:\Study\Soft-DTW-AWE\reports'
+data_root: 'C:\Study\Soft-DTW-AWE\speech_dataset' # directory with data
+model_root: 'C:\Study\Soft-DTW-AWE\models' # directory with models
+report_root: 'C:\Study\Soft-DTW-AWE\reports' # directory with reports
 
-wanted_words:
-#  - 'bed'
-#  - 'bird'
-#  - 'cat'
-#  - 'dog'
-#  - 'down'
-#  - 'eight'
-#  - 'five'
-#  - 'four'
-#  - 'go'
-#  - 'happy'
-#  - 'house'
-#  - 'left'
+labels: # list of words used for training
+  - 'bed'
+  - 'bird'
+  - 'cat'
+  - 'dog'
+  - 'down'
+  - 'eight'
+  - 'five'
+  - 'four'
+  - 'go'
+  - 'happy'
+  - 'house'
+  - 'left'
   - 'marvin'
   - 'nine'
   - 'no'
@@ -35,24 +35,24 @@ wanted_words:
   - 'yes'
   - 'zero'
 
+use_cuda: True
 
+preprocessing: # audio processing settings
+  numcep: 13
+  winlen: 0.02
+  winstep: 0.01
 
-dct_coefficient_count: 13
-mfcc_num: 39
-batch_norm: True
-hidden_fc:
-- 256
-- 256
-hidden_reccurent:
-- 256
-- 256
-winlen: 0.02
-winstep: 0.01
-
-dropout: 0.3
-bidirectional: False
-
-use_cuda: False
+model:
+  input_dim: 39
+  batch_norm: True
+  hidden_fc:
+  - 256
+  - 256
+  hidden_reccurent:
+  - 256
+  - 256
+  dropout: 0.3
+  bidirectional: False
 
 loss:
   type: 'sdtw' # cos_hinge, sdtw, l2, ce
@@ -60,16 +60,14 @@ loss:
   dist: 'l1'
   open_end: False
   margin: 0.4
-#loss_type: 'sdtw' # cos_hinge, sdtw, l2, ce
   triplet_anneal_k: 0.0025
   triplet_anneal_b: 2500
 
-train_steps: 50000
-mini_batch_size: 64
-
-learning_rate: 0.001
-
-save_each: 500 # save model each n steps
-validate_each: 500 # validate model each n steps
+training:
+  train_steps: 50000
+  mini_batch_size: 64
+  learning_rate: 0.001
+  save_each: 500 # save model each n steps
+  validate_each: 500 # validate model each n steps
 
 
