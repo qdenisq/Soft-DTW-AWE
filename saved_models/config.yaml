@@ -1,4 +1,4 @@
-data_root: C:\Study\Soft-DTW-AWE\speech_dataset #<path to SpeechCommands dataset root folder>
+data_root: <path to SpeechCommands dataset root folder>
 labels:
 - bed
 - bird
