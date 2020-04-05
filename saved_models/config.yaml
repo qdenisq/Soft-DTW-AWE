@@ -1,4 +1,4 @@
-data_root: C:\Study\Soft-DTW-AWE\speech_dataset
+data_root: C:\Study\Soft-DTW-AWE\speech_dataset #<path to SpeechCommands dataset root folder>
 labels:
 - bed
 - bird
@@ -50,12 +50,12 @@ model:
   - 256
   input_dim: 39
   label_count: 32
-model_root: C:\Study\Soft-DTW-AWE\models
+model_root: models
 preprocessing:
   numcep: 13
   winlen: 0.02
   winstep: 0.01
-report_root: C:\Study\Soft-DTW-AWE\reports
+report_root: reports
 training:
   learning_rate: 0.001
   mini_batch_size: 64
