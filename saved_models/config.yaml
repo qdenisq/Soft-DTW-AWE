@@ -1,0 +1,65 @@
+data_root: C:\Study\Soft-DTW-AWE\speech_dataset
+labels:
+- bed
+- bird
+- cat
+- dog
+- down
+- eight
+- five
+- four
+- go
+- happy
+- house
+- left
+- marvin
+- nine
+- 'no'
+- 'off'
+- 'on'
+- one
+- right
+- seven
+- sheila
+- six
+- stop
+- three
+- tree
+- two
+- up
+- wow
+- 'yes'
+- zero
+loss:
+  alpha: 0.0
+  dist: l1
+  margin: 0.4
+  open_end: false
+  triplet_anneal_b: 2500
+  triplet_anneal_k: 0.0025
+  type: sdtw
+model:
+  batch_norm: true
+  bidirectional: false
+  dropout: 0.3
+  hidden_fc:
+  - 256
+  - 256
+  hidden_reccurent:
+  - 256
+  - 256
+  input_dim: 39
+  label_count: 32
+model_root: C:\Study\Soft-DTW-AWE\models
+preprocessing:
+  numcep: 13
+  winlen: 0.02
+  winstep: 0.01
+report_root: C:\Study\Soft-DTW-AWE\reports
+training:
+  learning_rate: 0.001
+  mini_batch_size: 64
+  save_each: 500
+  train_steps: 50000
+  validate_each: 500
+use_cuda: true
