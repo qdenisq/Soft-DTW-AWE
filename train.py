@@ -32,7 +32,8 @@ def train(config):
 
     preproc = AudioPreprocessorMFCCDeltaDelta(numcep=config['preprocessing']['numcep'],
                                               winlen=config['preprocessing']['winlen'],
-                                              winstep=config['preprocessing']['winstep'])
+                                              winstep=config['preprocessing']['winstep'],
+                                              target_sample_rate=config['preprocessing']['target_sample_rate'])
 
     data_root = config['data_root']
 
@@ -108,8 +109,8 @@ def train(config):
         if i % config['training']['save_each'] == 0:
             for name, param in siamese_net.named_parameters():
                 writer.add_histogram("SiameseNet_" + name, param, i)
-            fname = os.path.join(model_dir, f'net_{i}.net')
-            torch.save(siamese_net, fname)
+            fname = os.path.join(model_dir, f'net_{i}.pt')
+            torch.save(siamese_net.state_dict(), fname)
 
         print(f"{i} | {loss_type} loss: {loss.detach().cpu().item():.4f}")
 

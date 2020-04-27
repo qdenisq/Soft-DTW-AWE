@@ -34,6 +34,7 @@ labels: # list of words used for training
   - 'wow'
   - 'yes'
   - 'zero'
+  - 
 
 use_cuda: True
 
@@ -41,6 +42,7 @@ preprocessing: # audio processing settings
   numcep: 13
   winlen: 0.02
   winstep: 0.01
+  target_sample_rate: 8000
 
 model:
   input_dim: 39

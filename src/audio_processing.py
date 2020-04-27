@@ -19,6 +19,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 # from tensorflow.python.ops import io_ops
 
 from scipy.io import wavfile as wav
+import librosa
 from python_speech_features import mfcc, fbank, delta
 
 
@@ -26,7 +27,7 @@ class AudioPreprocessor(object):
     """Computes MFCC of an audio
     """
 
-    def __init__(self, numcep=40, winlen=0.025, winstep=0.025, **kwargs):
+    def __init__(self, numcep=40, winlen=0.025, winstep=0.025, target_sample_rate=8000, **kwargs):
         """Initializes processing parameters
 
         Parameters
@@ -43,6 +44,7 @@ class AudioPreprocessor(object):
         self._numcep = numcep
         self._winlen = winlen
         self._winstep = winstep
+        self._target_sr = target_sample_rate
         return
 
     def __call__(self, *args, **kwargs):
@@ -83,7 +85,8 @@ class AudioPreprocessor(object):
         if len(input.shape) >= 2:
             inp_shape = input.shape
             raise ValueError(f"input shape has to be N*1, got: {inp_shape}")
-        mfcc_out = mfcc(input, samplerate=sr, numcep=self._numcep + 1, winlen=self._winlen, nfft=int(sr*self._winlen), winstep=self._winstep)
+        input = librosa.resample(input, sr, self._target_sr)
+        mfcc_out = mfcc(input, samplerate=self._target_sr, numcep=self._numcep + 1, winlen=self._winlen, nfft=int(sr*self._winlen), winstep=self._winstep)
         return mfcc_out[:, 1:]
 
     def __from_file(self, fname):
@@ -121,8 +124,12 @@ class AudioPreprocessorMFCCDeltaDelta(AudioPreprocessor):
 
     """
 
-    def __init__(self, numcep=40, winlen=0.025, winstep=0.025, **kwargs):
-        super(AudioPreprocessorMFCCDeltaDelta, self).__init__(numcep=numcep, winlen=winlen, winstep=winstep, **kwargs)
+    def __init__(self, numcep=40, winlen=0.025, winstep=0.025, target_sample_rate=8000, **kwargs):
+        super(AudioPreprocessorMFCCDeltaDelta, self).__init__(numcep=numcep,
+                                                              winlen=winlen,
+                                                              winstep=winstep,
+                                                              target_sample_rate=target_sample_rate,
+                                                              **kwargs)
         return
 
     def _from_array(self, input, sr):
@@ -143,7 +150,8 @@ class AudioPreprocessorMFCCDeltaDelta(AudioPreprocessor):
         if len(input.shape) >= 2:
             inp_shape = input.shape
             raise ValueError(f"input shape has to be N*1, got: {inp_shape}")
-        out = mfcc(input, samplerate=sr, numcep=self._numcep + 1, winlen=self._winlen, nfft=int(sr*self._winlen), winstep=self._winstep)[:, 1:]
+        input = librosa.resample(input, sr, self._target_sr)
+        out = mfcc(input, samplerate=self._target_sr, numcep=self._numcep + 1, winlen=self._winlen, nfft=int(sr*self._winlen), winstep=self._winstep)[:, 1:]
         out_delta = delta(out, 1)
         out_delta_delta = delta(out_delta, 1)
         res = np.concatenate((out, out_delta, out_delta_delta), axis=1)
